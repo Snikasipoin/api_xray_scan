@@ -2,8 +2,14 @@ import os
 from flask import Flask, request, render_template, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv()
+
+OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
+if not OPENROUTER_KEY:
+    raise EnvironmentError("❌ Переменная окружения OPENROUTER_API_KEY не установлена")
+print("✅ OPENROUTER_API_KEY загружен")
 
 app = Flask(__name__)
 
@@ -16,6 +22,11 @@ MODEL_PATH = 'model.pth.tar'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_KEY
+)
 
 @app.route("/")
 def hello():
