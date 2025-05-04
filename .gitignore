@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyd
+*.dll
+*.lib
+*.exe
+*.pkg
+*.pt
+*.pth
+*.jpg
+*.png
+static/results/
+build/
+dist/
