@@ -7,9 +7,6 @@ from openai import OpenAI
 load_dotenv()
 
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
-if not OPENROUTER_KEY:
-    raise EnvironmentError("❌ Переменная окружения OPENROUTER_API_KEY не установлена")
-print("✅ OPENROUTER_API_KEY загружен")
 
 app = Flask(__name__)
 
