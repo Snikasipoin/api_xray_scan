@@ -1,8 +1,10 @@
 import os
+import numpy as np
 from flask import Flask, request, render_template, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
+
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -84,7 +86,6 @@ class GradCAM:
         self.gradients = grad_output[0]
 
     def generate(self, input_tensor, class_idx=None):
-        import numpy as np
         import cv2
 
         input_tensor = input_tensor.to(device)
