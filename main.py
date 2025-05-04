@@ -44,7 +44,7 @@ client = OpenAI(
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model
-model = models.densenet121(pretrained=False)
+model = models.densenet121(weights=None)
 num_classes = 14
 model.classifier = nn.Linear(model.classifier.in_features, num_classes)
 
