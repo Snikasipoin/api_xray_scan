@@ -13,15 +13,15 @@ import matplotlib.pyplot as plt
 from openai import OpenAI
 from dotenv import load_dotenv
 
-load_dotenv()
+# load_dotenv()
 
 app = Flask(__name__)
 
-# OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
-# if not OPENROUTER_KEY:
-#     raise EnvironmentError("❌ Переменная окружения OPENROUTER_API_KEY не установлена")
-#
-# print("✅ OPENROUTER_API_KEY загружен")
+OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
+if not OPENROUTER_KEY:
+    raise EnvironmentError("❌ Переменная окружения OPENROUTER_API_KEY не установлена")
+
+print("✅ OPENROUTER_API_KEY загружен")
 
 @app.route("/")
 def hello():
