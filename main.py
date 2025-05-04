@@ -7,6 +7,16 @@ load_dotenv()
 
 app = Flask(__name__)
 
+CORS(app)
+
+UPLOAD_FOLDER = 'static/uploads'
+RESULT_FOLDER = 'static/results'
+MODEL_PATH = 'model.pth.tar'
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(RESULT_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
 @app.route("/")
 def hello():
     return "Timeweb Cloud + Flask = ❤️"
