@@ -65,15 +65,10 @@ def load_model():
             transforms.ToTensor(),
         ])
 
-        try:
-            client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=OPENROUTER_KEY
-            )
-            print("✅ OpenAI клиент инициализирован")
-        except Exception as e:
-            client = None
-            print(f"❌ Ошибка инициализации OpenAI клиента: {e}")
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=OPENROUTER_KEY
+        )
 
 
 # 🔹 GradCAM класс
@@ -181,11 +176,10 @@ def interpret_result(pred_class, probs):
 
 # 🔹 Генерация заключения врача
 def generate_medical_summary(interpretation: str) -> str:
-    if client is None:
-        return "❌ OpenAI клиент не инициализирован. Проверьте ключ и инициализацию."
-
     try:
-        print("📡 Отправка запроса в OpenRouter...")
+        if not client:
+            return "❌ OpenAI клиент не инициализирован."
+
         response = client.chat.completions.create(
             model="deepseek/deepseek-prover-v2:free",
             messages=[
@@ -199,13 +193,11 @@ def generate_medical_summary(interpretation: str) -> str:
             temperature=0.5,
             max_tokens=300
         )
-        print("✅ Ответ от OpenRouter получен.")
         return response.choices[0].message.content.strip()
 
     except Exception as e:
         print("❌ Ошибка от OpenRouter API:", e)
         return f"Ошибка получения заключения врача: {str(e)}"
-
 
 
 
