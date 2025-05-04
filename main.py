@@ -1,5 +1,9 @@
-from flask import Flask
 import os
+from flask import Flask, request, render_template, jsonify
+from flask_cors import CORS
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 
