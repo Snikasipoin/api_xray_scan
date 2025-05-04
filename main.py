@@ -4,6 +4,7 @@ from flask import Flask, request, render_template, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
+from openai import OpenAI
 
 
 # Загрузка переменных окружения
@@ -44,7 +45,6 @@ def load_model():
         import torch.nn as nn
         import torchvision.models as models
         import torchvision.transforms as transforms
-        from openai import OpenAI
 
         model = models.densenet121(weights=None)
         model.classifier = nn.Linear(model.classifier.in_features, 14)
