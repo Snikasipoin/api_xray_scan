@@ -13,7 +13,10 @@ load_dotenv()
 # Проверка наличия API-ключа
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 if not OPENROUTER_KEY:
-    raise EnvironmentError("❌ Переменная окружения OPENROUTER_API_KEY не установлена")
+    print("❌ Ключ OpenRouter не найден")
+else:
+    print(f"🔑 Ключ загружен: {OPENROUTER_KEY[:10]}...")
+
 
 # Flask-приложение
 app = Flask(__name__)
@@ -62,10 +65,15 @@ def load_model():
             transforms.ToTensor(),
         ])
 
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=OPENROUTER_KEY
-        )
+        try:
+            client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=OPENROUTER_KEY
+            )
+            print("✅ OpenAI клиент инициализирован")
+        except Exception as e:
+            client = None
+            print(f"❌ Ошибка инициализации OpenAI клиента: {e}")
 
 
 # 🔹 GradCAM класс
@@ -173,8 +181,10 @@ def interpret_result(pred_class, probs):
 
 # 🔹 Генерация заключения врача
 def generate_medical_summary(interpretation: str) -> str:
+    if client is None:
+        return "❌ OpenAI клиент не инициализирован. Проверьте ключ и инициализацию."
+
     try:
-        load_model()
         print("📡 Отправка запроса в OpenRouter...")
         response = client.chat.completions.create(
             model="deepseek/deepseek-prover-v2:free",
@@ -191,10 +201,12 @@ def generate_medical_summary(interpretation: str) -> str:
         )
         print("✅ Ответ от OpenRouter получен.")
         return response.choices[0].message.content.strip()
+
     except Exception as e:
-        print("❌ Ошибка от OpenRouter API:")
-        print(str(e))
+        print("❌ Ошибка от OpenRouter API:", e)
         return f"Ошибка получения заключения врача: {str(e)}"
+
+
 
 
 # 🔹 Роуты Flask
