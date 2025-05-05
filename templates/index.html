@@ -2,71 +2,58 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Анализ рентгеновских снимков</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; }
-        #result { margin-top: 20px; }
-        .image-container { display: inline-block; margin: 10px; vertical-align: top; }
-        img { max-width: 300px; border-radius: 10px; }
-        #interpretation, #gpt-diagnosis { white-space: pre-line; margin-top: 20px; padding: 10px; border: 1px solid #ccc; border-radius: 10px; background: #f9f9f9; }
-    </style>
+    <title>Анализ снимка</title>
 </head>
 <body>
-    <h1>Анализ рентгеновских снимков</h1>
+    <h2>Загрузка снимка</h2>
     <form id="upload-form" enctype="multipart/form-data">
         <input type="file" name="file" accept="image/*" required>
-        <button type="submit">Загрузить и обработать</button>
+        <button type="submit">Загрузить</button>
     </form>
-    <div id="result">
-        <div class="image-container">
-            <h3>Исходное изображение</h3>
-            <img id="original-image" style="display: none;">
-        </div>
-        <div class="image-container">
-            <h3>Тепловая карта</h3>
-            <img id="heatmap-image" style="display: none;">
-        </div>
-        <div class="image-container">
-            <h3>График вероятностей</h3>
-            <img id="plot-image" style="display: none;">
-        </div>
-        <h3>Интерпретация модели</h3>
-        <p id="interpretation"></p>
-        <h3>Заключение врача (AI)</h3>
-        <p id="gpt-diagnosis"></p>
+
+    <div id="result" style="margin-top: 20px;">
+        <h3>Изображение:</h3>
+        <img id="image" style="max-width: 300px;"><br>
+        <h3>Тепловая карта:</h3>
+        <img id="heatmap" style="max-width: 300px;"><br>
+
+        <h3>Ключевые находки:</h3>
+        <ul id="details"></ul>
+
+        <h3>Детальный анализ:</h3>
+        <p><strong>Легочная ткань:</strong> <span id="lungs"></span></p>
+        <p><strong>Сердце и сосуды:</strong> <span id="heart"></span></p>
+        <p><strong>Сравнительный анализ:</strong> <span id="comparison"></span></p>
+
+        <h3>Медицинское заключение:</h3>
+        <p id="conclusion"></p>
     </div>
 
     <script>
-        document.getElementById('upload-form').addEventListener('submit', function(e) {
+        document.getElementById("upload-form").onsubmit = async function(e) {
             e.preventDefault();
-            const formData = new FormData(this);
+            const form = new FormData(this);
+            const response = await fetch("/upload", { method: "POST", body: form });
+            const data = await response.json();
 
-            fetch('/upload', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    alert(data.error);
-                } else {
-                    document.getElementById('original-image').src = data.original_url + '?t=' + new Date().getTime();
-                    document.getElementById('heatmap-image').src = data.heatmap_url + '?t=' + new Date().getTime();
-                    document.getElementById('plot-image').src = data.plot_url + '?t=' + new Date().getTime();
+            if (data.error) return alert(data.error);
 
-                    document.getElementById('original-image').style.display = 'block';
-                    document.getElementById('heatmap-image').style.display = 'block';
-                    document.getElementById('plot-image').style.display = 'block';
+            document.getElementById("image").src = data.image_url;
+            document.getElementById("heatmap").src = data.heatmap_url;
 
-                    document.getElementById('interpretation').innerText = data.interpretation;
-                    document.getElementById('gpt-diagnosis').innerText = data.gpt_diagnosis;
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Произошла ошибка при обработке.');
+            const list = document.getElementById("details");
+            list.innerHTML = "";
+            data.details.forEach(d => {
+                const li = document.createElement("li");
+                li.innerText = `${d.label}: ${d.confidence}`;
+                list.appendChild(li);
             });
-        });
+
+            document.getElementById("lungs").innerText = data.detailed_analysis["Легочная ткань"];
+            document.getElementById("heart").innerText = data.detailed_analysis["Сердце и сосуды"];
+            document.getElementById("comparison").innerText = data.detailed_analysis["Сравнительный анализ"];
+            document.getElementById("conclusion").innerText = data.full_report;
+        };
     </script>
 </body>
 </html>
