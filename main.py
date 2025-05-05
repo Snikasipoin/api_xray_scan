@@ -3,18 +3,13 @@ from flask import Flask, request, render_template, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
-import numpy as np
-import cv2
 
 # Загрузка переменных окружения
 load_dotenv()
-
-# Проверка наличия API-ключа
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 if not OPENROUTER_KEY:
     raise EnvironmentError("❌ Переменная окружения OPENROUTER_API_KEY не установлена")
 
-# Flask-приложение
 app = Flask(__name__)
 CORS(app)
 
@@ -26,7 +21,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Устройство
 import torch
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -35,10 +29,10 @@ model = None
 transform = None
 client = None
 
-# 🔹 Ленивая загрузка модели и зависимостей
 def load_model():
     global model, transform, client
     if model is None:
+        print("📦 Загрузка модели и зависимостей...")
         import torch.nn as nn
         import torchvision.models as models
         import torchvision.transforms as transforms
@@ -65,7 +59,6 @@ def load_model():
             api_key=OPENROUTER_KEY
         )
 
-# 🔹 GradCAM
 class GradCAM:
     def __init__(self, model, target_layer):
         self.model = model
@@ -83,6 +76,8 @@ class GradCAM:
         self.gradients = grad_output[0]
 
     def generate(self, input_tensor, class_idx=None):
+        import numpy as np
+        import cv2
 
         input_tensor = input_tensor.to(device)
         output = self.model(input_tensor)
@@ -102,9 +97,11 @@ class GradCAM:
         cam = cam / np.max(cam)
         return cam, class_idx
 
-# 🔹 Обработка изображения
 def process_image(image_path):
+    import numpy as np
+    import cv2
     from PIL import Image
+    import matplotlib.pyplot as plt
 
     load_model()
 
@@ -131,21 +128,22 @@ def process_image(image_path):
         "Масса", "Узелок", "Ателектаз", "Пневмония", "Плеврит", "Пневмоторакс",
         "Фиброз", "Консолидация"
     ]
-    top_probs_idx = np.argsort(probs)[::-1][:4]
+    top_probs_idx = np.argsort(probs)[::-1][:5]
     top_probs = probs[top_probs_idx]
     top_labels = [class_names[idx] for idx in top_probs_idx]
 
-    return {
-        "class_index": int(pred_class),
-        "class_names": class_names,
-        "top_labels": top_labels,
-        "top_probs": [float(f"{p:.4f}") for p in top_probs],
-        "heatmap_path": heatmap_path,
-        "original_path": image_path,
-        "probabilities": probs
-    }
+    plot_path = os.path.join(RESULT_FOLDER, "probs_plot.png")
+    plt.figure(figsize=(10, 5))
+    plt.bar(top_labels, top_probs * 100, color='skyblue')
+    plt.xlabel('Классы')
+    plt.ylabel('Вероятность (%)')
+    plt.title('Топ-5 вероятностей')
+    plt.xticks(rotation=45)
+    plt.savefig(plot_path, bbox_inches='tight')
+    plt.close()
 
-# 🔹 Интерпретация результатов
+    return pred_class, image_path, heatmap_path, plot_path, probs
+
 def interpret_result(pred_class, probs):
     class_names = [
         "Норма", "Кардиомегалия", "Эмфизема", "Отек", "Грыжа", "Инфильтрация",
@@ -159,10 +157,10 @@ def interpret_result(pred_class, probs):
         return f"Предсказание: Неопределенно (уверенность: {max_prob * 100:.2f}%)\nВероятности:\n{prob_str}"
     return f"Предсказание: {class_names[pred_class]}\nВероятности:\n{prob_str}"
 
-# 🔹 Заключение врача
-def generate_medical_summary(interpretation: str):
+def generate_medical_summary(interpretation: str) -> str:
     try:
         load_model()
+        print("📡 Отправка запроса в OpenRouter...")
         response = client.chat.completions.create(
             model="deepseek/deepseek-prover-v2:free",
             messages=[
@@ -176,11 +174,13 @@ def generate_medical_summary(interpretation: str):
             temperature=0.5,
             max_tokens=300
         )
+        print("✅ Ответ от OpenRouter получен.")
         return response.choices[0].message.content.strip()
     except Exception as e:
+        print("❌ Ошибка от OpenRouter API:")
+        print(str(e))
         return f"Ошибка получения заключения врача: {str(e)}"
 
-# 🔹 Роуты Flask
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -195,24 +195,20 @@ def upload_file():
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
 
-        result = process_image(file_path)
-        interpretation = interpret_result(result["class_index"], result["probabilities"])
+        pred_class, original_path, heatmap_path, plot_path, probs = process_image(file_path)
+        interpretation = interpret_result(pred_class, probs)
         gpt_diagnosis = generate_medical_summary(interpretation)
 
         base_url = request.url_root.rstrip('/')
-
         return jsonify({
-            "original_url": f"{base_url}/{result['original_path']}",
-            "heatmap_url": f"{base_url}/{result['heatmap_path']}",
+            "original_url": f"{base_url}/{original_path}",
+            "heatmap_url": f"{base_url}/{heatmap_path}",
+            "plot_url": f"{base_url}/{plot_path}",
             "interpretation": interpretation,
-            "gpt_diagnosis": gpt_diagnosis,
-            "details": [
-                {"label": label, "confidence": f"{prob * 100:.2f}%"}
-                for label, prob in zip(result["top_labels"], result["top_probs"])
-            ]
+            "gpt_diagnosis": gpt_diagnosis
         })
     except Exception as e:
-        print(f"❌ Ошибка обработки: {e}")
+        print(f"❌ Ошибка обработки запроса: {e}")
         return jsonify({"error": f"Ошибка обработки: {str(e)}"}), 500
 
 if __name__ == "__main__":
