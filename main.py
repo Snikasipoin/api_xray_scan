@@ -35,7 +35,6 @@ def load_model():
         import torch.nn as nn
         import torchvision.models as models
         import torchvision.transforms as transforms
-        from openai import OpenAI
 
         model = models.densenet121(weights=None)
         model.classifier = nn.Linear(model.classifier.in_features, 14)
@@ -55,6 +54,8 @@ def load_model():
             transforms.ToTensor(),
         ])
 
+    if client is None:
+        from openai import OpenAI
         client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=OPENROUTER_KEY
@@ -79,7 +80,6 @@ class GradCAM:
     def generate(self, input_tensor, class_idx=None):
         import numpy as np
         import cv2
-        import torch
 
         input_tensor = input_tensor.to(device)
         output = self.model(input_tensor)
