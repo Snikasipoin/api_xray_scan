@@ -26,10 +26,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = None
 transform = None
-client = None
+openai_initialized = False
 
 def load_model():
-    global model, transform, client
+    global model, transform, openai_initialized
     if model is None:
         print("📦 Загрузка модели и зависимостей...")
         import torch.nn as nn
@@ -54,12 +54,12 @@ def load_model():
             transforms.ToTensor(),
         ])
 
-    if client is None:
-        from openai import OpenAI
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=OPENROUTER_KEY
-        )
+    if not openai_initialized:
+        import openai
+        openai.api_key = OPENROUTER_KEY
+        openai.base_url = "https://openrouter.ai/api/v1"
+        openai_initialized = True
+
 
 class GradCAM:
     def __init__(self, model, target_layer):
@@ -99,6 +99,7 @@ class GradCAM:
         cam = cam / np.max(cam)
         return cam, class_idx
 
+
 def process_image(image_path):
     import numpy as np
     import cv2
@@ -126,6 +127,7 @@ def process_image(image_path):
 
     return pred_class, image_path, heatmap_path, probs
 
+
 def interpret_result(pred_class, probs):
     class_names = [
         "Норма", "Кардиомегалия", "Эмфизема", "Отек", "Грыжа", "Инфильтрация",
@@ -141,11 +143,13 @@ def interpret_result(pred_class, probs):
     summary = "\n".join([f"{class_names[i]}: {probs[i] * 100:.2f}%" for i in top_3_idx])
     return details, summary, top_3_idx[0]
 
+
 def generate_medical_summary(summary_text):
     try:
         load_model()
+        import openai
         print("📡 Отправка запроса в OpenRouter...")
-        response = client.chat.completions.create(
+        response = openai.chat.completions.create(
             model="deepseek/deepseek-prover-v2:free",
             messages=[
                 {"role": "system", "content": "Вы опытный врач-рентгенолог."},
@@ -163,9 +167,11 @@ def generate_medical_summary(summary_text):
     except Exception as e:
         return f"Ошибка получения заключения врача: {str(e)}"
 
+
 @app.route('/')
 def index():
     return render_template("index.html")
+
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -193,6 +199,7 @@ def upload():
     except Exception as e:
         print(f"❌ Ошибка обработки: {e}")
         return jsonify({"error": f"Ошибка обработки: {str(e)}"}), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
