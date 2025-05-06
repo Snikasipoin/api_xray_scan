@@ -4,8 +4,8 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 
-# Загрузка переменных окружения
 load_dotenv()
+
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 if not OPENROUTER_KEY:
     raise EnvironmentError("❌ Переменная окружения OPENROUTER_API_KEY не установлена")
@@ -24,7 +24,6 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 import torch
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Глобальные переменные
 model = None
 transform = None
 client = None
@@ -43,9 +42,11 @@ def load_model():
 
         checkpoint = torch.load(MODEL_PATH, map_location=device)
         state_dict = checkpoint.get("state_dict", checkpoint)
-        corrected_state_dict = {k.replace("densenet121.", "").replace("classifier.0.", "classifier."): v for k, v in state_dict.items()}
+        corrected_state_dict = {
+            k.replace("densenet121.", "").replace("classifier.0.", "classifier."): v
+            for k, v in state_dict.items()
+        }
         model.load_state_dict(corrected_state_dict)
-
         model.to(device)
         model.eval()
 
@@ -78,6 +79,7 @@ class GradCAM:
     def generate(self, input_tensor, class_idx=None):
         import numpy as np
         import cv2
+        import torch
 
         input_tensor = input_tensor.to(device)
         output = self.model(input_tensor)
@@ -101,7 +103,6 @@ def process_image(image_path):
     import numpy as np
     import cv2
     from PIL import Image
-    import matplotlib.pyplot as plt
 
     load_model()
 
@@ -123,26 +124,7 @@ def process_image(image_path):
     heatmap_path = os.path.join(RESULT_FOLDER, "heatmap.jpg")
     cv2.imwrite(heatmap_path, superimposed_img)
 
-    class_names = [
-        "Норма", "Кардиомегалия", "Эмфизема", "Отек", "Грыжа", "Инфильтрация",
-        "Масса", "Узелок", "Ателектаз", "Пневмония", "Плеврит", "Пневмоторакс",
-        "Фиброз", "Консолидация"
-    ]
-    top_probs_idx = np.argsort(probs)[::-1][:5]
-    top_probs = probs[top_probs_idx]
-    top_labels = [class_names[idx] for idx in top_probs_idx]
-
-    plot_path = os.path.join(RESULT_FOLDER, "probs_plot.png")
-    plt.figure(figsize=(10, 5))
-    plt.bar(top_labels, top_probs * 100, color='skyblue')
-    plt.xlabel('Классы')
-    plt.ylabel('Вероятность (%)')
-    plt.title('Топ-5 вероятностей')
-    plt.xticks(rotation=45)
-    plt.savefig(plot_path, bbox_inches='tight')
-    plt.close()
-
-    return pred_class, image_path, heatmap_path, plot_path, probs
+    return pred_class, image_path, heatmap_path, probs
 
 def interpret_result(pred_class, probs):
     class_names = [
@@ -150,14 +132,16 @@ def interpret_result(pred_class, probs):
         "Масса", "Узелок", "Ателектаз", "Пневмония", "Плеврит", "Пневмоторакс",
         "Фиброз", "Консолидация"
     ]
-    top_probs_idx = np.argsort(probs)[::-1][:3]
-    prob_str = "\n".join([f"{class_names[idx]}: {probs[idx] * 100:.2f}%" for idx in top_probs_idx])
-    max_prob = probs[pred_class]
-    if max_prob < 0.5:
-        return f"Предсказание: Неопределенно (уверенность: {max_prob * 100:.2f}%)\nВероятности:\n{prob_str}"
-    return f"Предсказание: {class_names[pred_class]}\nВероятности:\n{prob_str}"
+    top_probs_idx = sorted(range(len(probs)), key=lambda i: probs[i], reverse=True)[:4]
+    details = [
+        {"label": class_names[i], "confidence": round(probs[i] * 100, 2)}
+        for i in top_probs_idx
+    ]
+    top_3_idx = top_probs_idx[:3]
+    summary = "\n".join([f"{class_names[i]}: {probs[i] * 100:.2f}%" for i in top_3_idx])
+    return details, summary, top_3_idx[0]
 
-def generate_medical_summary(interpretation: str) -> str:
+def generate_medical_summary(summary_text):
     try:
         load_model()
         print("📡 Отправка запроса в OpenRouter...")
@@ -166,9 +150,9 @@ def generate_medical_summary(interpretation: str) -> str:
             messages=[
                 {"role": "system", "content": "Вы опытный врач-рентгенолог."},
                 {"role": "user", "content": (
-                    "Вы рентгенолог. Проанализируйте результат работы ИИ-модели по рентгену грудной клетки. "
-                    f"Вот вероятности по классам и вывод модели:\n{interpretation}\n\n"
-                    "Сформулируйте медицинское заключение кратко, как врач бы написал его в протоколе. Укажите возможные патологии и уровень уверенности."
+                    f"Вы рентгенолог. Вот вероятности по классам:\n{summary_text}\n"
+                    "Сформулируйте медицинское заключение кратко, как в протоколе. "
+                    "Выделите патологические находки и степень уверенности."
                 )}
             ],
             temperature=0.5,
@@ -177,38 +161,37 @@ def generate_medical_summary(interpretation: str) -> str:
         print("✅ Ответ от OpenRouter получен.")
         return response.choices[0].message.content.strip()
     except Exception as e:
-        print("❌ Ошибка от OpenRouter API:")
-        print(str(e))
         return f"Ошибка получения заключения врача: {str(e)}"
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template("index.html")
 
 @app.route('/upload', methods=['POST'])
-def upload_file():
+def upload():
     try:
         file = request.files['file']
         if file.filename == '':
             return jsonify({"error": "Файл не выбран."}), 400
+
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
 
-        pred_class, original_path, heatmap_path, plot_path, probs = process_image(file_path)
-        interpretation = interpret_result(pred_class, probs)
+        pred_class, original_path, heatmap_path, probs = process_image(file_path)
+        details, interpretation, _ = interpret_result(pred_class, probs)
         gpt_diagnosis = generate_medical_summary(interpretation)
 
-        base_url = request.url_root.rstrip('/')
         return jsonify({
-            "original_url": f"{base_url}/{original_path}",
-            "heatmap_url": f"{base_url}/{heatmap_path}",
-            "plot_url": f"{base_url}/{plot_path}",
+            "original_url": f"/{original_path}",
+            "heatmap_url": f"/{heatmap_path}",
             "interpretation": interpretation,
+            "details": details,
             "gpt_diagnosis": gpt_diagnosis
         })
+
     except Exception as e:
-        print(f"❌ Ошибка обработки запроса: {e}")
+        print(f"❌ Ошибка обработки: {e}")
         return jsonify({"error": f"Ошибка обработки: {str(e)}"}), 500
 
 if __name__ == "__main__":

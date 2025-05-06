@@ -4,19 +4,21 @@
     <meta charset="UTF-8">
     <title>Анализ рентгеновских снимков</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px auto; max-width: 900px; }
-        h1 { text-align: center; }
-        #result { margin-top: 30px; }
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f0f4f8; }
+        h1 { margin-bottom: 30px; }
+        form { margin-bottom: 20px; }
         .image-container { display: inline-block; margin: 10px; vertical-align: top; }
-        img { max-width: 300px; border-radius: 10px; box-shadow: 0 0 10px #ccc; }
-        .box { margin-top: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 10px; background: #f9f9f9; }
-        .details-table { width: 100%; margin-top: 10px; border-collapse: collapse; }
-        .details-table th, .details-table td { padding: 8px 12px; border: 1px solid #ccc; text-align: left; }
-        .details-table th { background: #f0f0f0; }
+        img { max-width: 300px; border-radius: 10px; border: 1px solid #ccc; }
+        #details-table { margin: 20px auto; border-collapse: collapse; width: 80%; }
+        #details-table th, #details-table td { padding: 10px; border: 1px solid #ccc; }
+        .block { background: #fff; padding: 15px; margin: 20px auto; width: 80%; border-radius: 10px; text-align: left; }
+        .block h3 { margin-top: 0; }
+        #interpretation, #gpt-diagnosis { white-space: pre-line; }
     </style>
 </head>
 <body>
     <h1>Анализ рентгеновских снимков</h1>
+
     <form id="upload-form" enctype="multipart/form-data">
         <input type="file" name="file" accept="image/*" required>
         <button type="submit">Загрузить и обработать</button>
@@ -32,65 +34,55 @@
             <img id="heatmap-image">
         </div>
 
-        <div class="box">
-            <h3>Интерпретация модели</h3>
-            <pre id="interpretation"></pre>
-        </div>
-
-        <div class="box">
-            <h3>Заключение врача (AI)</h3>
-            <pre id="gpt-diagnosis"></pre>
-        </div>
-
-        <div class="box">
-            <h3>Наиболее вероятные патологии</h3>
-            <table class="details-table" id="details-table">
+        <div class="block">
+            <h3>Предполагаемые патологии (Топ-4)</h3>
+            <table id="details-table">
                 <thead>
-                    <tr>
-                        <th>Патология</th>
-                        <th>Уверенность</th>
-                    </tr>
+                    <tr><th>Класс</th><th>Уверенность (%)</th></tr>
                 </thead>
-                <tbody></tbody>
+                <tbody id="details-body"></tbody>
             </table>
+        </div>
+
+        <div class="block">
+            <h3>Медицинское заключение (AI)</h3>
+            <div id="gpt-diagnosis"></div>
         </div>
     </div>
 
     <script>
-        document.getElementById('upload-form').addEventListener('submit', function(e) {
+        document.getElementById('upload-form').addEventListener('submit', function (e) {
             e.preventDefault();
             const formData = new FormData(this);
-            document.getElementById('result').style.display = 'none';
 
             fetch('/upload', {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
+            .then(res => res.json())
             .then(data => {
                 if (data.error) {
                     alert(data.error);
-                } else {
-                    document.getElementById('original-image').src = data.original_url + '?t=' + new Date().getTime();
-                    document.getElementById('heatmap-image').src = data.heatmap_url + '?t=' + new Date().getTime();
-
-                    document.getElementById('interpretation').innerText = data.interpretation;
-                    document.getElementById('gpt-diagnosis').innerText = data.gpt_diagnosis;
-
-                    const tableBody = document.querySelector("#details-table tbody");
-                    tableBody.innerHTML = '';
-                    data.details.forEach(detail => {
-                        const row = document.createElement('tr');
-                        row.innerHTML = `<td>${detail.label}</td><td>${detail.confidence}</td>`;
-                        tableBody.appendChild(row);
-                    });
-
-                    document.getElementById('result').style.display = 'block';
+                    return;
                 }
+
+                document.getElementById('original-image').src = data.original_url;
+                document.getElementById('heatmap-image').src = data.heatmap_url;
+
+                const detailsBody = document.getElementById('details-body');
+                detailsBody.innerHTML = '';
+                data.details.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `<td>${item.label}</td><td>${item.confidence}</td>`;
+                    detailsBody.appendChild(row);
+                });
+
+                document.getElementById('gpt-diagnosis').textContent = data.gpt_diagnosis;
+                document.getElementById('result').style.display = 'block';
             })
             .catch(error => {
-                console.error('Error:', error);
-                alert('Произошла ошибка при обработке.');
+                console.error('Ошибка:', error);
+                alert('Ошибка при обработке изображения.');
             });
         });
     </script>
