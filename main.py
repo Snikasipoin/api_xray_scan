@@ -5,37 +5,33 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 
-# Загрузка переменных окружения
 load_dotenv()
+
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 if not OPENROUTER_KEY:
     raise EnvironmentError("❌ Переменная окружения OPENROUTER_API_KEY не установлена")
 
-# Flask-приложение
 app = Flask(__name__)
 CORS(app)
 
 UPLOAD_FOLDER = 'static/uploads'
 RESULT_FOLDER = 'static/results'
 MODEL_PATH = 'model.pth.tar'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Устройство и глобальные переменные
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 model = None
 transform = None
-openai = None
-openai_initialized = False
 
-# 🔹 Ленивая загрузка модели и клиента
+
 def load_model():
-    global model, transform, openai, openai_initialized
-
+    global model, transform
     if model is None:
-        print("📦 Загрузка модели...")
+        print("📦 Загрузка модели и зависимостей...")
         import torch.nn as nn
         import torchvision.models as models
         import torchvision.transforms as transforms
@@ -58,14 +54,7 @@ def load_model():
             transforms.ToTensor(),
         ])
 
-    if not openai_initialized:
-        import openai as openai_sdk
-        openai = openai_sdk
-        openai.api_key = OPENROUTER_KEY
-        openai.base_url = "https://openrouter.ai/api/v1"
-        openai_initialized = True
 
-# 🔹 GradCAM
 class GradCAM:
     def __init__(self, model, target_layer):
         self.model = model
@@ -104,7 +93,7 @@ class GradCAM:
         cam = cam / np.max(cam)
         return cam, class_idx
 
-# 🔹 Обработка изображения
+
 def process_image(image_path):
     import numpy as np
     import cv2
@@ -132,7 +121,7 @@ def process_image(image_path):
 
     return pred_class, image_path, heatmap_path, probs
 
-# 🔹 Интерпретация результата
+
 def interpret_result(pred_class, probs):
     class_names = [
         "Норма", "Кардиомегалия", "Эмфизема", "Отек", "Грыжа", "Инфильтрация",
@@ -144,36 +133,47 @@ def interpret_result(pred_class, probs):
         {"label": class_names[i], "confidence": round(probs[i] * 100, 2)}
         for i in top_probs_idx
     ]
-    summary = "\n".join([f"{class_names[i]}: {probs[i] * 100:.2f}%" for i in top_probs_idx[:3]])
-    return details, summary, top_probs_idx[0]
+    top_3_idx = top_probs_idx[:3]
+    summary = "\n".join([f"{class_names[i]}: {probs[i] * 100:.2f}%" for i in top_3_idx])
+    return details, summary, top_3_idx[0]
 
-# 🔹 Генерация заключения врача
-def generate_medical_summary(summary_text):
+
+def generate_medical_summary(summary_text: str) -> str:
+    import httpx
+
     try:
-        load_model()
-        print("📡 Отправка запроса в OpenRouter...")
-        response = openai.chat.completions.create(
-            model="deepseek/deepseek-prover-v2:free",
-            messages=[
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://yourdomain.com",  # замените, если хотите
+            "X-Title": "XRayScanApp"
+        }
+
+        payload = {
+            "model": "deepseek/deepseek-prover-v2:free",
+            "messages": [
                 {"role": "system", "content": "Вы опытный врач-рентгенолог."},
                 {"role": "user", "content": (
                     f"Вы рентгенолог. Вот вероятности по классам:\n{summary_text}\n"
                     "Сформулируйте медицинское заключение кратко, как в протоколе. "
                     "Выделите патологические находки и степень уверенности."
                 )}
-            ],
-            temperature=0.5,
-            max_tokens=300
-        )
-        print("✅ Ответ от OpenRouter получен.")
-        return response.choices[0].message.content.strip()
+            ]
+        }
+
+        response = httpx.post("https://openrouter.ai/api/v1/chat/completions",
+                              headers=headers, json=payload, timeout=60)
+
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         return f"Ошибка получения заключения врача: {str(e)}"
 
-# 🔹 Роуты Flask
+
 @app.route('/')
 def index():
     return render_template("index.html")
+
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -197,9 +197,11 @@ def upload():
             "details": details,
             "gpt_diagnosis": gpt_diagnosis
         })
+
     except Exception as e:
         print(f"❌ Ошибка обработки: {e}")
         return jsonify({"error": f"Ошибка обработки: {str(e)}"}), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
