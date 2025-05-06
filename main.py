@@ -1,37 +1,41 @@
 import os
+import torch
 from flask import Flask, request, render_template, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 
+# Загрузка переменных окружения
 load_dotenv()
-
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 if not OPENROUTER_KEY:
     raise EnvironmentError("❌ Переменная окружения OPENROUTER_API_KEY не установлена")
 
+# Flask-приложение
 app = Flask(__name__)
 CORS(app)
 
 UPLOAD_FOLDER = 'static/uploads'
 RESULT_FOLDER = 'static/results'
 MODEL_PATH = 'model.pth.tar'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-import torch
+# Устройство и глобальные переменные
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 model = None
 transform = None
+openai = None
 openai_initialized = False
 
+# 🔹 Ленивая загрузка модели и клиента
 def load_model():
-    global model, transform, openai_initialized
+    global model, transform, openai, openai_initialized
+
     if model is None:
-        print("📦 Загрузка модели и зависимостей...")
+        print("📦 Загрузка модели...")
         import torch.nn as nn
         import torchvision.models as models
         import torchvision.transforms as transforms
@@ -55,12 +59,13 @@ def load_model():
         ])
 
     if not openai_initialized:
-        import openai
+        import openai as openai_sdk
+        openai = openai_sdk
         openai.api_key = OPENROUTER_KEY
         openai.base_url = "https://openrouter.ai/api/v1"
         openai_initialized = True
 
-
+# 🔹 GradCAM
 class GradCAM:
     def __init__(self, model, target_layer):
         self.model = model
@@ -99,7 +104,7 @@ class GradCAM:
         cam = cam / np.max(cam)
         return cam, class_idx
 
-
+# 🔹 Обработка изображения
 def process_image(image_path):
     import numpy as np
     import cv2
@@ -127,7 +132,7 @@ def process_image(image_path):
 
     return pred_class, image_path, heatmap_path, probs
 
-
+# 🔹 Интерпретация результата
 def interpret_result(pred_class, probs):
     class_names = [
         "Норма", "Кардиомегалия", "Эмфизема", "Отек", "Грыжа", "Инфильтрация",
@@ -139,15 +144,13 @@ def interpret_result(pred_class, probs):
         {"label": class_names[i], "confidence": round(probs[i] * 100, 2)}
         for i in top_probs_idx
     ]
-    top_3_idx = top_probs_idx[:3]
-    summary = "\n".join([f"{class_names[i]}: {probs[i] * 100:.2f}%" for i in top_3_idx])
-    return details, summary, top_3_idx[0]
+    summary = "\n".join([f"{class_names[i]}: {probs[i] * 100:.2f}%" for i in top_probs_idx[:3]])
+    return details, summary, top_probs_idx[0]
 
-
+# 🔹 Генерация заключения врача
 def generate_medical_summary(summary_text):
     try:
         load_model()
-        import openai
         print("📡 Отправка запроса в OpenRouter...")
         response = openai.chat.completions.create(
             model="deepseek/deepseek-prover-v2:free",
@@ -167,11 +170,10 @@ def generate_medical_summary(summary_text):
     except Exception as e:
         return f"Ошибка получения заключения врача: {str(e)}"
 
-
+# 🔹 Роуты Flask
 @app.route('/')
 def index():
     return render_template("index.html")
-
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -195,11 +197,9 @@ def upload():
             "details": details,
             "gpt_diagnosis": gpt_diagnosis
         })
-
     except Exception as e:
         print(f"❌ Ошибка обработки: {e}")
         return jsonify({"error": f"Ошибка обработки: {str(e)}"}), 500
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
