@@ -22,9 +22,9 @@ os.makedirs(RESULT_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 model = None
 transform = None
-
 
 def load_model():
     global model, transform
@@ -51,7 +51,6 @@ def load_model():
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
         ])
-
 
 class GradCAM:
     def __init__(self, model, target_layer):
@@ -91,13 +90,13 @@ class GradCAM:
         cam = cam / np.max(cam)
         return cam, class_idx
 
-
 def process_image(image_path):
     import numpy as np
     import cv2
     from PIL import Image
 
     load_model()
+
     img = Image.open(image_path).convert('RGB')
     img_tensor = transform(img).unsqueeze(0).to(device)
 
@@ -118,7 +117,6 @@ def process_image(image_path):
 
     return pred_class, image_path, heatmap_path, probs
 
-
 def interpret_result(pred_class, probs):
     class_names = [
         "Норма", "Кардиомегалия", "Эмфизема", "Отек", "Грыжа", "Инфильтрация",
@@ -133,7 +131,6 @@ def interpret_result(pred_class, probs):
     top_3_idx = top_probs_idx[:3]
     summary = "\n".join([f"{class_names[i]}: {probs[i] * 100:.2f}%" for i in top_3_idx])
     return details, summary, top_3_idx[0]
-
 
 def generate_medical_summary(summary_text: str) -> dict:
     import httpx
@@ -160,30 +157,22 @@ def generate_medical_summary(summary_text: str) -> dict:
 
         response = httpx.post("https://openrouter.ai/api/v1/chat/completions",
                               headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
 
-        full_text = response.json()["choices"][0]["message"]["content"].strip()
-        conclusion_only = ""
-
-        if "**Заключение:**" in full_text:
-            conclusion_only = full_text.split("**Заключение:**", 1)[1].strip()
-
-        return {
-            "full": full_text,
-            "conclusion_only": conclusion_only
-        }
-
+        data = response.json()
+        if "choices" in data:
+            full = data["choices"][0]["message"]["content"].strip()
+            after = full.split("**Заключение:**", 1)[-1].strip() if "**Заключение:**" in full else ""
+            return {"full": full, "conclusion": after}
+        elif "error" in data:
+            return {"error": f"OpenRouter error: {data['error'].get('message', 'Unknown error')}"}
+        else:
+            return {"error": "Unexpected response format"}
     except Exception as e:
-        return {
-            "full": f"Ошибка получения заключения врача: {str(e)}",
-            "conclusion_only": ""
-        }
-
+        return {"error": f"Ошибка получения заключения врача: {str(e)}"}
 
 @app.route('/')
 def index():
     return render_template("index.html")
-
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -198,21 +187,27 @@ def upload():
 
         pred_class, original_path, heatmap_path, probs = process_image(file_path)
         details, interpretation, _ = interpret_result(pred_class, probs)
-        gpt_response = generate_medical_summary(interpretation)
+        result = generate_medical_summary(interpretation)
+
+        if "error" in result:
+            gpt_diagnosis = result["error"]
+            gpt_conclusion = ""
+        else:
+            gpt_diagnosis = result["full"]
+            gpt_conclusion = result["conclusion"]
 
         return jsonify({
             "original_url": f"/{original_path}",
             "heatmap_url": f"/{heatmap_path}",
             "interpretation": interpretation,
             "details": details,
-            "gpt_diagnosis": gpt_response["full"],
-            "conclusion_only": gpt_response["conclusion_only"]
+            "gpt_diagnosis": gpt_diagnosis,
+            "conclusion_only": gpt_conclusion
         })
 
     except Exception as e:
         print(f"❌ Ошибка обработки: {e}")
         return jsonify({"error": f"Ошибка обработки: {str(e)}"}), 500
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
