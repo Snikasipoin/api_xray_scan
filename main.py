@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 
 load_dotenv()
-
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 if not OPENROUTER_KEY:
     raise EnvironmentError("❌ Переменная окружения OPENROUTER_API_KEY не установлена")
@@ -23,7 +22,6 @@ os.makedirs(RESULT_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 model = None
 transform = None
 
@@ -100,7 +98,6 @@ def process_image(image_path):
     from PIL import Image
 
     load_model()
-
     img = Image.open(image_path).convert('RGB')
     img_tensor = transform(img).unsqueeze(0).to(device)
 
@@ -138,14 +135,14 @@ def interpret_result(pred_class, probs):
     return details, summary, top_3_idx[0]
 
 
-def generate_medical_summary(summary_text: str) -> str:
+def generate_medical_summary(summary_text: str) -> dict:
     import httpx
 
     try:
         headers = {
             "Authorization": f"Bearer {OPENROUTER_KEY}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://yourdomain.com",  # замените, если хотите
+            "HTTP-Referer": "https://yourdomain.com",
             "X-Title": "XRayScanApp"
         }
 
@@ -163,11 +160,24 @@ def generate_medical_summary(summary_text: str) -> str:
 
         response = httpx.post("https://openrouter.ai/api/v1/chat/completions",
                               headers=headers, json=payload, timeout=60)
-
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"].strip()
+
+        full_text = response.json()["choices"][0]["message"]["content"].strip()
+        conclusion_only = ""
+
+        if "**Заключение:**" in full_text:
+            conclusion_only = full_text.split("**Заключение:**", 1)[1].strip()
+
+        return {
+            "full": full_text,
+            "conclusion_only": conclusion_only
+        }
+
     except Exception as e:
-        return f"Ошибка получения заключения врача: {str(e)}"
+        return {
+            "full": f"Ошибка получения заключения врача: {str(e)}",
+            "conclusion_only": ""
+        }
 
 
 @app.route('/')
@@ -188,14 +198,15 @@ def upload():
 
         pred_class, original_path, heatmap_path, probs = process_image(file_path)
         details, interpretation, _ = interpret_result(pred_class, probs)
-        gpt_diagnosis = generate_medical_summary(interpretation)
+        gpt_response = generate_medical_summary(interpretation)
 
         return jsonify({
             "original_url": f"/{original_path}",
             "heatmap_url": f"/{heatmap_path}",
             "interpretation": interpretation,
             "details": details,
-            "gpt_diagnosis": gpt_diagnosis
+            "gpt_diagnosis": gpt_response["full"],
+            "conclusion_only": gpt_response["conclusion_only"]
         })
 
     except Exception as e:
