@@ -134,6 +134,7 @@ def interpret_result(pred_class, probs):
 
 def generate_medical_summary(summary_text: str) -> dict:
     import httpx
+    import re
 
     try:
         headers = {
@@ -157,18 +158,20 @@ def generate_medical_summary(summary_text: str) -> dict:
 
         response = httpx.post("https://openrouter.ai/api/v1/chat/completions",
                               headers=headers, json=payload, timeout=60)
+        if response.status_code != 200:
+            return {"error": f"OpenRouter error {response.status_code}: {response.text}"}
 
         data = response.json()
-        if "choices" in data:
-            full = data["choices"][0]["message"]["content"].strip()
-            after = full.split("**Заключение:**", 1)[-1].strip() if "**Заключение:**" in full else ""
-            return {"full": full, "conclusion": after}
-        elif "error" in data:
-            return {"error": f"OpenRouter error: {data['error'].get('message', 'Unknown error')}"}
-        else:
-            return {"error": "Unexpected response format"}
+        full = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+        match = re.search(r"\*\*Заключение:\*\*(.*?)(\n\n|\Z)", full, re.DOTALL)
+        after = match.group(1).strip() if match else ""
+
+        return {"full": full, "conclusion": after}
+
     except Exception as e:
         return {"error": f"Ошибка получения заключения врача: {str(e)}"}
+
 
 @app.route('/')
 def index():
