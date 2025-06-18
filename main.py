@@ -144,7 +144,7 @@ def generate_medical_summary(summary_text: str) -> dict:
         }
 
         payload = {
-            "model": "deepseek/deepseek-r1-0528",
+            "model": "deepseek/deepseek-v3-base:free",
             "messages": [
                 {"role": "system", "content": "Вы опытный врач-рентгенолог."},
                 {"role": "user", "content": (
